@@ -1,4 +1,4 @@
-# AstroBin Depth Translator — analytics collector
+# AstroBin Depth Translator - analytics collector
 
 This collects the **opt-in, anonymous** usage data your extension already
 sends (only when a user ticks the consent box). It stores every event in a
@@ -18,7 +18,7 @@ timestamp, and a JSON `data` blob. Event types:
 
 | event           | data it carries                                              |
 |-----------------|--------------------------------------------------------------|
-| `opt_in`        | (nothing — just marks that someone turned sharing on)        |
+| `opt_in`        | (nothing - just marks that someone turned sharing on)        |
 | `rig_saved`     | scope, camera, broadband filter, narrowband filters, sky     |
 | `custom_gear`   | category + model of a custom piece of gear they added        |
 | `image_analyzed`| AstroBin image URL, scope, camera, filters, sky, channels    |
@@ -32,7 +32,7 @@ You need [Node.js](https://nodejs.org) installed (you already have it). All
 commands run from this folder (`astrobin-analytics`).
 
 ### 1. Make a free Cloudflare account
-Go to https://dash.cloudflare.com/sign-up — email + password, no card.
+Go to https://dash.cloudflare.com/sign-up - email + password, no card.
 
 ### 2. Log in from the command line
 ```
@@ -53,7 +53,7 @@ npx wrangler d1 execute astrobin-analytics --remote --file=schema.sql
 ```
 
 ### 5. Set your secret read key
-Pick any long random password — this is what protects your data from being
+Pick any long random password - this is what protects your data from being
 downloaded by anyone else.
 ```
 npx wrangler secret put DUMP_KEY
@@ -73,7 +73,7 @@ Open `../astrobin-depth-translator/src/background.js` and set:
 const ANALYTICS_ENDPOINT = "https://astrobin-analytics.your-name.workers.dev/collect";
 ```
 Then add your **exact** Worker host to `../astrobin-depth-translator/manifest.json`
-`host_permissions` (use the real subdomain, NOT a `*.workers.dev` wildcard — the
+`host_permissions` (use the real subdomain, NOT a `*.workers.dev` wildcard - the
 Web Store flags broad permissions):
 ```json
 "host_permissions": [
@@ -83,8 +83,8 @@ Web Store flags broad permissions):
 ]
 ```
 Then reload the unpacked extension at `chrome://extensions` (↻). If you publish
-with a live endpoint, update STORE_LISTING.md too (it currently — correctly for
-v0.1 — states the extension requests no broad host permissions).
+with a live endpoint, update STORE_LISTING.md too (it currently - correctly for
+v0.1 - states the extension requests no broad host permissions).
 
 That's it. From now on, when a user opts in, their events land in your
 database.
@@ -106,7 +106,7 @@ python analyze.py       # prints a short summary
 ```
 
 `pull_data.py` only fetches events you don't already have, then appends them to
-`data/events.ndjson` — one event per line, the whole dataset in a single file.
+`data/events.ndjson` - one event per line, the whole dataset in a single file.
 
 `analyze.py` reads that file and prints counts, top gear, the funnel
 (opted-in → saved a rig → analyzed an image), most-analyzed images, and any
@@ -125,30 +125,30 @@ Send yourself a fake event to confirm the pipe works:
 ```
 curl -X POST https://astrobin-analytics.your-name.workers.dev/collect ^
   -H "Content-Type: application/json" ^
-  -d "{\"id\":\"test\",\"v\":\"0.1.0\",\"event\":\"opt_in\",\"ts\":0,\"data\":{}}"
+  -d "{\"id\":\"test\",\"v\":\"0.1.1\",\"event\":\"opt_in\",\"ts\":0,\"data\":{}}"
 ```
-Then `python pull_data.py && python analyze.py` — you should see 1 event.
+Then `python pull_data.py && python analyze.py` - you should see 1 event.
 
 ---
 
 ## Files here
-- `worker.js` — the Cloudflare Worker (collect + protected dump endpoints)
-- `schema.sql` — the database table
-- `wrangler.toml` — Cloudflare deploy config (add your database_id)
-- `pull_data.py` — download events into `data/events.ndjson`
-- `analyze.py` — print a compact summary
-- `config.example.json` — copy to `config.json` and fill in
-- `data/` — your downloaded events live here (git-ignored)
+- `worker.js` - the Cloudflare Worker (collect + protected dump endpoints)
+- `schema.sql` - the database table
+- `wrangler.toml` - Cloudflare deploy config (add your database_id)
+- `pull_data.py` - download events into `data/events.ndjson`
+- `analyze.py` - print a compact summary
+- `config.example.json` - copy to `config.json` and fill in
+- `data/` - your downloaded events live here (git-ignored)
 
 ## Abuse / limits
-`/collect` is public (it has to be — browsers call it). The Worker only accepts
+`/collect` is public (it has to be - browsers call it). The Worker only accepts
 the five known event names and caps each payload at 8 KB, so junk is limited.
 If you ever see flooding (the free tier allows 100k DB writes/day), add a free
 Cloudflare **Rate limiting rule** in the dashboard (Security → WAF) on the
-`/collect` path — e.g. 60 requests/min per IP. No code change needed.
+`/collect` path - e.g. 60 requests/min per IP. No code change needed.
 
 ## Privacy note
 `config.json` and `data/` are git-ignored so your secret key and collected data
 never get pushed. The data is anonymous by design, but if you publish to the
 Chrome Web Store with a live endpoint, set the data-collection disclosure to
-**Yes** (Website content + web activity) — see the extension's `STORE_LISTING.md`.
+**Yes** (Website content + web activity) - see the extension's `STORE_LISTING.md`.

@@ -5,7 +5,7 @@ current docs (June 2026). Everything you need is already prepared:
 
 | What | Where |
 |---|---|
-| Upload package | `astrobin-depth-translator-v0.1.0.zip` (project root) |
+| Upload package | `astrobin-depth-translator_0.1.1.zip` (project root) |
 | Listing text (copy‑paste) | `astrobin-depth-translator/STORE_LISTING.md` |
 | Privacy policy (must be hosted) | `astrobin-depth-translator/PRIVACY.md` |
 | Store images | `store-assets/` (screenshots, promo tiles) |
@@ -45,7 +45,7 @@ permanently public URL works.
 ## Step 2 - Create the item and upload the package
 
 1. In the dashboard click **"Add new item."**
-2. Upload **`astrobin-depth-translator-v0.1.0.zip`** (it has `manifest.json` at the
+2. Upload **`astrobin-depth-translator_0.1.1.zip`** (it has `manifest.json` at the
    root - that's what Google expects). It's Manifest V3 with only `storage` + the
    two AstroBin host permissions, so it should validate cleanly.
 
@@ -80,15 +80,16 @@ From the matching section of `STORE_LISTING.md`:
 2. **Permission justifications** - paste the `storage` and host‑permission
    justifications (one per permission Google lists).
 3. **Remote code:** select **No** (all code ships in the package).
-4. **Data usage:** as shipped the extension **collects no data** (the analytics
-   endpoint is empty and the toggle is off by default), so answer **"does not
-   collect user data"** and certify the three required statements (no selling, no
-   unrelated use, no creditworthiness use).
+4. **Data usage:** as shipped, analytics is **ON** (live endpoint, opt-in). Answer
+   **"collects user data" = Yes** and declare **Website content**, **Web history /
+   Website activity**, and **User activity**, then certify the three required
+   statements (no selling, no unrelated use, no creditworthiness use). See
+   `STORE_LISTING.md` for the exact wording.
 5. **Privacy policy URL:** paste the public URL from Step 0.
 
-> If you later enable real analytics (set `ANALYTICS_ENDPOINT` in
-> `src/background.js`), you must return here and update these answers and the
-> policy before shipping that build.
+> To ship with analytics OFF instead: set `ANALYTICS_ENDPOINT = ""` in
+> `src/background.js`, remove the `workers.dev` host permission, rebuild, and then
+> answer "collects user data" = No.
 
 ---
 
@@ -123,7 +124,7 @@ and a clear single purpose (like this one) usually pass smoothly.
 
 - [ ] Privacy policy is live at a public URL
 - [ ] $5 developer registration paid
-- [ ] `astrobin-depth-translator-v0.1.0.zip` uploaded and validated
+- [ ] `astrobin-depth-translator_0.1.1.zip` uploaded and validated
 - [ ] Name, summary, description, category filled
 - [ ] Store icon + ≥1 screenshot (1280×800) + small promo tile (440×280) uploaded
 - [ ] Single purpose + permission justifications pasted

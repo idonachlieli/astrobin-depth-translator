@@ -1,12 +1,16 @@
-# Secrets & collected data — never commit these
+# Secrets & collected data - never commit these
 astrobin-analytics/config.json
 astrobin-analytics/data/
+DUMP_KEY*
+**/DUMP_KEY*
 
 # Tooling / build junk
 node_modules/
 .wrangler/
 __pycache__/
 *.pyc
+.fuse_hidden*
+**/.fuse_hidden*
 
 # Build output (rebuild from source instead)
-astrobin-depth-translator-v*.zip
+*.zip

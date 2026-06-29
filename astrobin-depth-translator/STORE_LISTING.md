@@ -38,7 +38,7 @@ Raw hours mean nothing across different apertures, f‑ratios, and skies. Instea
 - Handles colour and mono, broadband (LRGB) and narrowband (Hα/OIII/SII), dual‑band filters and SHO filter sets, moonlight, and Bortle/SQM skies.
 - Hover any number to see the full calculation with your own values substituted in - no black boxes.
 - A confidence indicator shows when a value is measured vs. estimated.
-- **Match it at 100%:** an interactive per‑pixel planner shows which scope and camera would reproduce this image's detail at 1:1 on your sensor - adjust focal length, aperture, or f‑ratio and it tells you whether you'd match the image's resolution and the integration time to get there. So you can plan for detail, not just depth.
+- **Could your gear capture this detail?** an interactive per‑pixel planner shows which scope and camera would reproduce this image's detail at 1:1 on your sensor - adjust focal length, aperture, or f‑ratio and it tells you whether you'd match the image's resolution and the integration time to get there. So you can plan for detail, not just depth.
 
 **What it is not:** it estimates *depth* (how much signal the data holds), not artistic quality, framing, or processing. The numbers are physically grounded estimates, only as good as the metadata each image's author entered.
 
@@ -66,17 +66,19 @@ A single‑purpose statement Google requires - paste verbatim:
 **No** - the extension executes only code included in the package.
 
 ### Data usage / data collection disclosures
-The optional "Help improve this extension - share usage data" toggle is **off by default**, and as shipped `ANALYTICS_ENDPOINT` in `src/background.js` is empty, so the published build transmits nothing even if a user opts in. But the opt-in feature is now wired to collect more than before, so disclose accurately depending on how you ship:
+**As shipped, analytics is ON:** `ANALYTICS_ENDPOINT` in `src/background.js` points to a live Cloudflare Worker, and the `workers.dev` host is in `host_permissions`. The "Help improve this extension (share usage data)" toggle is **off by default** and data is sent **only after the user opts in** - but because a working endpoint ships, the store answer is:
 
-- **Shipping with an empty endpoint (recommended for v0.1):** "Does this item collect user data?" -> **No**.
-- **Shipping with a working endpoint:** -> **Yes**, and declare these data types: **Website content** (the image's public acquisition metadata) and **Website activity / web history** (the AstroBin image-page URLs the user analyzes). Note it is optional (opt-in) and used only to improve the extension.
-- Either way, certify the three required statements (all true): you do **not** sell user data; you do **not** use it for purposes unrelated to the single purpose; you do **not** use it for creditworthiness or lending.
+- "Does this item collect user data?" -> **Yes**.
+- Declare these data types: **Website content** (the image's public acquisition metadata), **Web history / Website activity** (the canonical AstroBin image-page URL the user analyzes), and **User activity** (errors). It is optional (opt-in) and used only to improve the extension.
+- Certify the three required statements (all true): you do **not** sell user data; you do **not** use it for purposes unrelated to the single purpose; you do **not** use it for creditworthiness or lending.
 
-> Note: when enabled, the opt-in analytics now sends the AstroBin image-page URL, that image's public acquisition details (gear, integration, sky), the gear/settings used, errors, and a random install id. That is pseudonymous browsing/usage data - it must be disclosed here and in PRIVACY.md (already updated) before you ship a working endpoint, and you must add the endpoint's domain to `host_permissions`.
+When opted in, the analytics sends: the canonical AstroBin image-page URL, that image's public acquisition details (gear, integration, sky), the gear/settings used, custom gear, errors, and a random install id. That is pseudonymous usage data, disclosed here and in PRIVACY.md.
+
+> To ship with analytics OFF instead: set `ANALYTICS_ENDPOINT = ""`, remove the `workers.dev` host permission, and then the answer above becomes **No**.
 
 ### Privacy policy URL (required)
 A publicly accessible URL is **mandatory** because the extension uses `storage` and host permissions. Host `PRIVACY.md` somewhere public and paste the URL here. Easiest options:
-- Push the GitHub repo public and use the rendered file URL, e.g. `https://github.com/idonachlieli/astrobin-depth-translator/blob/main/PRIVACY.md`
+- Push the GitHub repo public and use the rendered file URL, e.g. `https://github.com/idonachlieli/astrobin-depth-translator/blob/main/astrobin-depth-translator/PRIVACY.md`
 - Or enable GitHub Pages and link the rendered page
 - Or paste the policy text into a public GitHub Gist and link that
 
@@ -91,7 +93,7 @@ A publicly accessible URL is **mandatory** because the extension uses `storage` 
 ---
 
 ## Manifest facts (for the reviewer's context)
-- Manifest V3 ✔ · Version 0.1.0 · Permissions: `storage` + the two AstroBin host permissions + the analytics worker host (`astrobin-analytics.idonachlieli.workers.dev`, used only for opt-in usage data).
+- Manifest V3 ✔ · Version 0.1.1 · Permissions: `storage` + the two AstroBin host permissions + the analytics worker host (`astrobin-analytics.idonachlieli.workers.dev`, used only for opt-in usage data).
 
 ## CURRENT SHIPPING DECISION (v0.1, analytics ON)
 This build has a live analytics endpoint, so on the Data-usage form:

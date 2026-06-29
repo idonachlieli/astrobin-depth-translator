@@ -11,20 +11,28 @@
   "use strict";
 
   const PANEL_ID = "adt-panel";
-  let lastImageId = null, rendering = false, settingsOpen = false, editingIndex = null;
+  let lastImageId = null, rendering = false, renderQueued = false, settingsOpen = false, editingIndex = null;
 
   // ---- opt-in anonymous analytics (OFF by default) ----
   let analyticsConsent = false, installId = null;
-  try {
-    chrome.storage.local.get(["adt_analytics", "adt_install"], (r) => {
-      analyticsConsent = !!(r && r.adt_analytics);
-      installId = (r && r.adt_install) || ("a" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36));
-      if (!(r && r.adt_install)) { try { chrome.storage.local.set({ adt_install: installId }); } catch (e) {} }
-    });
-  } catch (e) {}
+  // Load consent + install id as a promise so track() never fires before init,
+  // which would drop early events or send a null install id (#8).
+  const analyticsReady = new Promise((res) => {
+    try {
+      chrome.storage.local.get(["adt_analytics", "adt_install"], (r) => {
+        analyticsConsent = !!(r && r.adt_analytics);
+        installId = (r && r.adt_install) || ("adt-" + ((self.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2) + Date.now().toString(36))));
+        if (!(r && r.adt_install)) { try { chrome.storage.local.set({ adt_install: installId }); } catch (e) {} }
+        res();
+      });
+    } catch (e) { res(); }
+  });
   function track(event, data) {
-    if (!analyticsConsent) return;                 // nothing leaves the browser unless opted in
-    try { chrome.runtime.sendMessage({ type: "adt_track", payload: { id: installId, v: "0.1.0", event: event, ts: Date.now(), data: data || {} } }); } catch (e) {}
+    const ts = Date.now();                          // stamp the event now; the send may wait for init
+    analyticsReady.then(() => {
+      if (!analyticsConsent) return;                // nothing leaves the browser unless opted in
+      try { chrome.runtime.sendMessage({ type: "adt_track", payload: { id: installId, v: "0.1.1", event: event, ts: ts, data: data || {} } }); } catch (e) {}
+    });
   }
 
   // ---------- storage ----------
@@ -122,7 +130,10 @@
     if (calc.envFactor != null) parts.push("(sky+bandwidth ×" + f1(calc.envFactor) + ")");
     return FORMULA + "\n" + fmtH(calc.yourHours) + " = " + parts.join(" × ");
   }
-  function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  // el() is safe by default: text goes in as textContent (no HTML injection).
+  // Use htmlEl() only for the few places that deliberately build trusted markup.
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function htmlEl(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function input(type, val) { const i = document.createElement("input"); i.type = type; i.className = "adt-input"; if (val != null && val !== "") i.value = val; return i; }
   function combo(listId, val, ph) { const i = input("text", val); i.setAttribute("list", listId); if (ph) i.placeholder = ph; return i; }
   function opt(v, l, sel) { const o = document.createElement("option"); o.value = v; o.textContent = l; if (sel) o.selected = true; return o; }
@@ -141,10 +152,46 @@
     const tr = el("tr", ((warn ? "adt-warn " : "") + (extraCls || "")).trim());
     if (title) tr.title = title;
     tr.appendChild(el("td", "adt-cell-label", label));
-    tr.appendChild(el("td", "adt-cell-val", valueHtml));
+    tr.appendChild(htmlEl("td", "adt-cell-val", valueHtml));
     return tr;
   }
   function escapeHtml(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  // Validate/clamp custom gear before it is saved (#3): bad values (negative
+  // aperture, QE > 1, bandwidth 0, unknown type/bands) would otherwise flow into
+  // the math and produce NaN / Infinity / nonsense estimates. Returns an error
+  // string to show the user, or null if the item is acceptable.
+  const ADT_BANDS = ["L", "R", "G", "B", "Ha", "OIII", "SII"];
+  function validateGear(cat, item) {
+    const bad = (k) => item[k] != null && !(item[k] > 0);            // present but not a positive number (also catches NaN)
+    const frac = (k) => item[k] != null && !(item[k] > 0 && item[k] <= 1);
+    if (cat === "CAMERAS") {
+      if (item.type != null) { if (!/^(color|mono)$/i.test(item.type)) return 'Camera type must be "color" or "mono".'; item.type = item.type.toLowerCase(); }
+      if (bad("pixel_um")) return "Pixel size must be a positive number (µm).";
+      for (const q of ["qe_lum", "qe_ha", "qe_oiii", "qe_sii"]) if (frac(q)) return "QE values must be between 0 and 1 (e.g. 0.80).";
+    } else if (cat === "SCOPES") {
+      if (bad("aperture_mm")) return "Aperture must be a positive number (mm).";
+      if (bad("focal_mm")) return "Focal length must be a positive number (mm).";
+      if (bad("f_ratio")) return "f-ratio must be a positive number.";
+    } else if (cat === "FILTERS") {
+      if (item.kind != null) { if (!/^(broadband|line)$/i.test(item.kind)) return 'Filter kind must be "broadband" or "line".'; item.kind = item.kind.toLowerCase(); }
+      if (item.bands && item.bands.some((b) => !ADT_BANDS.includes(b))) return "Bands must be from: " + ADT_BANDS.join(", ") + ".";
+      if (bad("bandwidth_nm")) return "Bandwidth must be a positive number (nm).";
+      if (frac("transmission")) return "Transmission must be between 0 and 1.";
+    }
+    for (const k in item) if (typeof item[k] === "number" && !isFinite(item[k])) return '"' + k + '" is not a valid number.';
+    return null;
+  }
+  // Validate the main rig fields on "Save & apply" too (#7) - the custom-gear
+  // mini-form isn't the only way bad numbers reach the engine.
+  function validateRigInputs(v) {
+    if (!(v.aperture_mm > 0)) return "Aperture must be a positive number (mm).";
+    if (isFinite(v.focal_mm) && !(v.focal_mm > 0)) return "Focal length must be a positive number (mm).";
+    if (isFinite(v.pixel_um) && !(v.pixel_um > 0)) return "Pixel size must be a positive number (µm).";
+    if (isFinite(v.qe_lum) && !(v.qe_lum > 0 && v.qe_lum <= 1)) return "Camera QE must be between 0 and 1 (e.g. 0.80).";
+    if (v.sky_bortle != null && isFinite(v.sky_bortle) && !(v.sky_bortle >= 1 && v.sky_bortle <= 9)) return "Bortle must be between 1 and 9.";
+    if (v.sky_sqm != null && !(v.sky_sqm >= 15 && v.sky_sqm <= 23)) return "SQM must be between 15 and 23 (mag/arcsec²).";
+    return null;
+  }
   function forceRerender() { lastImageId = null; const e = document.getElementById(PANEL_ID); if (e) e.remove(); render(); }
 
   // ---------- credit + optional support ----------
@@ -197,7 +244,7 @@
     const SEEING = 2.5; // representative typical seeing, arcsec
     const wrap = el("div", "adt-pp");
     const toggle = el("div", "adt-pp-toggle");
-    const tTitle = el("div", "adt-pp-title", "▸  Match this image at 100%");
+    const tTitle = el("div", "adt-pp-title", "▸  Could your gear capture this detail?");
     toggle.appendChild(tTitle);
     toggle.appendChild(el("div", "adt-pp-sub", "Per-pixel: what scope or camera reproduces this image's detail at 1:1 on your sensor, and how long it would take."));
     wrap.appendChild(toggle);
@@ -206,7 +253,7 @@
     toggle.addEventListener("click", function () {
       const open = body.style.display === "none";
       body.style.display = open ? "" : "none";
-      tTitle.textContent = (open ? "▾  " : "▸  ") + "Match this image at 100%";
+      tTitle.textContent = (open ? "▾  " : "▸  ") + "Could your gear capture this detail?";
     });
 
     const imgScale = image.pixel_scale || null;
@@ -231,13 +278,28 @@
       "   ·   your camera: " + pixel + " µm"));
 
     const SPECS = {
-      focal: { label: "Focal (mm)", min: 50, max: 4000, expo: false, dec: 0 },
+      focal: { label: "Focal (mm)", min: 50, max: 4000, dec: 0, btnStep: 5, split: { at: 1500, frac: 0.80 } },
       aperture: { label: "Aperture (mm)", min: 30, max: 600, expo: false, dec: 0 },
       fratio: { label: "f-ratio", min: 1, max: 20, expo: false, dec: 1 }
     };
     function clampSp(v, sp) { return Math.max(sp.min, Math.min(sp.max, v)); }
-    function valToS(v, sp) { v = clampSp(v, sp); return sp.expo ? 1000 * Math.log(v / sp.min) / Math.log(sp.max / sp.min) : 1000 * (v - sp.min) / (sp.max - sp.min); }
-    function sToVal(s, sp) { return sp.expo ? sp.min * Math.pow(sp.max / sp.min, s / 1000) : sp.min + (sp.max - sp.min) * s / 1000; }
+    function valToS(v, sp) {
+      v = clampSp(v, sp);
+      if (sp.split) {                         // linear up to split.at (takes split.frac of the bar), exponential above
+        const a = sp.split.at, f = sp.split.frac;
+        return v <= a ? 1000 * f * (v - sp.min) / (a - sp.min)
+                      : 1000 * (f + (1 - f) * Math.log(v / a) / Math.log(sp.max / a));
+      }
+      return sp.expo ? 1000 * Math.log(v / sp.min) / Math.log(sp.max / sp.min) : 1000 * (v - sp.min) / (sp.max - sp.min);
+    }
+    function sToVal(s, sp) {
+      if (sp.split) {
+        const a = sp.split.at, f = sp.split.frac, t = s / 1000;
+        return t <= f ? sp.min + (a - sp.min) * (t / f)
+                      : a * Math.pow(sp.max / a, (t - f) / (1 - f));
+      }
+      return sp.expo ? sp.min * Math.pow(sp.max / sp.min, s / 1000) : sp.min + (sp.max - sp.min) * s / 1000;
+    }
     function fmtVal(v, sp) { return sp.dec ? v.toFixed(sp.dec) : String(Math.round(v)); }
     const getV = { focal: function () { return focal; }, aperture: function () { return aperture; }, fratio: function () { return fratio; } };
     const setV = { focal: function (v) { focal = v; }, aperture: function (v) { aperture = v; }, fratio: function (v) { fratio = v; } };
@@ -272,8 +334,8 @@
       function edited() { applyConstraint(key); refresh(); }
       sld.addEventListener("input", function () { setV[key](clampSp(sToVal(parseFloat(sld.value), sp), sp)); edited(); });
       num.addEventListener("input", function () { const v = parseFloat(num.value); if (isFinite(v)) { setV[key](clampSp(v, sp)); edited(); } });
-      minus.addEventListener("click", function () { setV[key](clampSp(getV[key]() - (sp.dec ? 0.1 : 1), sp)); edited(); });
-      plus.addEventListener("click", function () { setV[key](clampSp(getV[key]() + (sp.dec ? 0.1 : 1), sp)); edited(); });
+      minus.addEventListener("click", function () { setV[key](clampSp(getV[key]() - (sp.btnStep || (sp.dec ? 0.1 : 1)), sp)); edited(); });
+      plus.addEventListener("click", function () { setV[key](clampSp(getV[key]() + (sp.btnStep || (sp.dec ? 0.1 : 1)), sp)); edited(); });
       reset.addEventListener("click", function () { if (locked === key) return; setV[key](clampSp(rigVal[key], sp)); edited(); });
       lock.addEventListener("click", function () { locked = key; refresh(); });
       rows[key] = { sp: sp, sld: sld, num: num, minus: minus, plus: plus, reset: reset, lock: lock };
@@ -308,20 +370,20 @@
       const Tmatch = haveT ? baseHours * (rigAp / aperture) * (rigAp / aperture) : null;   // match the image's own scale
       const There = haveT ? Tmatch * ratio * ratio : null;                                  // at the current focal's finer/coarser scale
       out.innerHTML = "";
-      out.appendChild(el("div", "adt-pp-line",
+      out.appendChild(htmlEl("div", "adt-pp-line",
         "Your sampling here: <b>" + yourScale.toFixed(2) + "″/px</b> (feels like ~" + eff.toFixed(1) + "″ in typical seeing) · " + rel));
-      out.appendChild(el("div", "adt-pp-line",
+      out.appendChild(htmlEl("div", "adt-pp-line",
         "Match its detail at <b>" + matchFocal + " mm</b> on your camera, or a <b>" + altPixel + " µm</b> camera on " + Math.round(focal) + " mm."));
       if (There == null) {
         out.appendChild(el("div", "adt-pp-line adt-pp-time", "Integration to match: not available for this image."));
       } else if (ratio > 1.01) {
-        out.appendChild(el("div", "adt-pp-line adt-pp-time adt-pp-warn",
+        out.appendChild(htmlEl("div", "adt-pp-line adt-pp-time adt-pp-warn",
           "At your current <b>" + yourScale.toFixed(2) + "″/px</b>: <b>" + fmtH(There) + "</b> - " + (ratio * ratio).toFixed(2) + "x longer than at its native scale, for a more detailed image."));
       } else if (ratio < 0.99) {
-        out.appendChild(el("div", "adt-pp-line adt-pp-time adt-pp-warn",
+        out.appendChild(htmlEl("div", "adt-pp-line adt-pp-time adt-pp-warn",
           "At your current <b>" + yourScale.toFixed(2) + "″/px</b>: <b>" + fmtH(There) + "</b> - " + (ratio * ratio).toFixed(2) + "x the native-scale time (coarser, faster, less detail)."));
       } else {
-        out.appendChild(el("div", "adt-pp-line adt-pp-time adt-pp-warn",
+        out.appendChild(htmlEl("div", "adt-pp-line adt-pp-time adt-pp-warn",
           "At this image's own scale: <b>" + fmtH(There) + "</b> to match it."));
       }
     }
@@ -332,15 +394,26 @@
   // Persistent cache for AstroBin equipment lookups - avoids re-hitting their
   // API across page views / sessions (fair use). Stored in chrome.storage.
   let eqCache = {};
-  try { chrome.storage.local.get(["adt_eqcache"], (r) => { eqCache = (r && r.adt_eqcache) || {}; }); } catch (e) {}
+  // Load the persisted cache as a promise so cachedJson can await it instead of
+  // racing the async storage callback (#6).
+  const eqCacheReady = (async () => {
+    try {
+      const r = await new Promise((res) => chrome.storage.local.get(["adt_eqcache"], res));
+      eqCache = (r && r.adt_eqcache) || {};
+    } catch (e) { eqCache = {}; }
+  })();
   let eqSaveT = null;
   function eqSave() { clearTimeout(eqSaveT); eqSaveT = setTimeout(() => { try { chrome.storage.local.set({ adt_eqcache: eqCache }); } catch (e) {} }, 1500); }
   async function cachedJson(key, url) {
+    await eqCacheReady;
     if (Object.prototype.hasOwnProperty.call(eqCache, key)) return eqCache[key];
     try {
-      const r = await fetch(url, { headers: { Accept: "application/json" } });
-      const j = r.ok ? await r.json() : null;
-      eqCache[key] = j; eqSave(); return j;
+      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "omit" });
+      if (!r.ok) return null;                 // never cache a failure (#5): a transient AstroBin outage must not poison the cache forever
+      const j = await r.json();
+      // cache successful results, capped so the persisted cache can't grow unbounded (#9)
+      if (j && Object.keys(eqCache).length < 1500) { eqCache[key] = j; eqSave(); }
+      return j;
     } catch (e) { return null; }
   }
 
@@ -473,7 +546,7 @@
         setOpts(loc);
         timer = setTimeout(async () => {
           try {
-            const r = await fetch("/api/v2/equipment/" + klass + "/?q=" + encodeURIComponent(q), { headers: { Accept: "application/json" } });
+            const r = await fetch("/api/v2/equipment/" + klass + "/?q=" + encodeURIComponent(q), { headers: { Accept: "application/json" }, credentials: "omit" });
             const j = await r.json(); const arr = j.results || j;
             let rem = (arr || []).slice(0, 15).map((x) => ({ name: ((x.brandName ? x.brandName + " " : "") + (x.name || "")).trim(), id: x.id, raw: x, detail: remoteDetail(klass, x), remote: true }));
             if (klass === "filter" && kind) rem = rem.filter((it) => { const cl = filterBandsFromType(it.raw && it.raw.type); return !cl || cl.kind === kind; });
@@ -486,7 +559,11 @@
     }
     function registerRemoteFilter(it) {
       const exist = find(D.FILTERS, it.name); if (exist) return exist.model;
-      const cl = filterBandsFromType(it.raw && it.raw.type) || { bands: ["Ha"], kind: "line" };
+      const cl = filterBandsFromType(it.raw && it.raw.type);
+      if (!cl) {   // unknown AstroBin filter type: don't guess Ha (#11) - that would silently mis-estimate. Ask the user to add it explicitly.
+        alert('Couldn\'t identify the bands for "' + it.name + '". Add it under "Add custom gear" with its bands so the estimate stays correct.');
+        return null;
+      }
       const bw = parseFloat(it.raw && it.raw.bandwidth);
       const item = { model: it.name, kind: cl.kind, bands: cl.bands,
         bandwidth_nm: isFinite(bw) ? bw : (cl.kind === "line" ? 7 : (cl.bands[0] === "L" ? 300 : 100)),
@@ -577,7 +654,7 @@
     qeI.addEventListener("input", checkCamMods);
     checkCamMods();
     const bbI = combo("adt-dl-bb", editing.broadbandFilterModel || "", "No filter, OSC, or LRGB / luminance");
-    const bortleI = input("number", editing.sky_bortle != null ? editing.sky_bortle : ""); bortleI.min = "1"; bortleI.max = "9"; bortleI.step = "0.5"; bortleI.placeholder = "Bortle 1–9";
+    const bortleI = input("number", editing.sky_bortle != null ? editing.sky_bortle : ""); bortleI.min = "1"; bortleI.max = "9"; bortleI.step = "any"; bortleI.placeholder = "Bortle 1–9";
     const sqmI = input("number", editing.sky_sqm != null ? editing.sky_sqm : ""); sqmI.placeholder = "optional"; sqmI.step = "0.01";
     const moonChk = document.createElement("input"); moonChk.type = "checkbox"; moonChk.checked = editing.moonless !== false;
     const moonLbl = el("label", "adt-set-check"); moonLbl.appendChild(moonChk); moonLbl.appendChild(el("span", null, " I shoot moonless"));
@@ -592,7 +669,7 @@
       nbChips.innerHTML = "";
       if (!nbSelected.length) { nbChips.appendChild(el("span", "adt-set-hint", "none - broadband only")); }
       nbSelected.forEach((m, i) => {
-        const chip = el("span", "adt-chip", escapeHtml(m) + " ");
+        const chip = htmlEl("span", "adt-chip", escapeHtml(m) + " ");
         const x = el("span", "adt-chip-x", "✕");
         x.addEventListener("click", () => { nbSelected.splice(i, 1); renderChips(); markDirty(); });
         chip.appendChild(x); nbChips.appendChild(chip);
@@ -609,7 +686,7 @@
 
     field("Scope", scopeI, "Pick a model, or leave blank and just enter the specs below.", scopeMarker);
     groupRow([["Aperture", apI], ["Focal", focI]]);
-    field("Camera", camI, "Pick a model, or leave blank and enter type + QE below.", camMarker);
+    field("Camera", camI, null, camMarker);
     groupRow([["Type", camType], ["Pixel", pixI], ["Lum QE", qeI]]);
     field("Broadband", bbI);
     const nbRow = el("div", "adt-set-row"); nbRow.appendChild(el("span", "adt-set-lbl", "Narrowband")); nbRow.appendChild(nbI); nbRow.appendChild(nbAdd);
@@ -678,13 +755,15 @@
         else item[key] = parseFloat(v);
       });
       if (cat === "FILTERS" && !item.kind) item.kind = (item.bands && item.bands[0] && /L|R|G|B/.test(item.bands[0])) ? "broadband" : "line";
+      const gearErr = validateGear(cat, item);
+      if (gearErr) { alert(gearErr); return; }
       window.ADT_DATA[cat].push(Object.assign({ _custom: true }, item));
       settings.adt_custom = settings.adt_custom || { CAMERAS: [], SCOPES: [], FILTERS: [] };
       settings.adt_custom[cat] = settings.adt_custom[cat] || []; settings.adt_custom[cat].push(item);
       persistSettings(settings);
       track("custom_gear", { cat: cat, model: item.model, item: item });
       refreshLists(); renderCFields(); cName.value = "";
-      const ok = el("div", "adt-set-hint", "✓ added “" + escapeHtml(name) + "” to your private gear - it'll show in suggestions.");
+      const ok = htmlEl("div", "adt-set-hint", "✓ added “" + escapeHtml(name) + "” to your private gear - it'll show in suggestions.");
       cform.appendChild(ok); setTimeout(() => ok.remove(), 3000);
     });
     const cTitleRow = el("div", "adt-set-row"); cTitleRow.appendChild(el("span", "adt-set-lbl", "Category")); cTitleRow.appendChild(cCat);
@@ -696,7 +775,7 @@
     // opt-in analytics toggle - clear wording, unticked by default
     const consentChk = document.createElement("input"); consentChk.type = "checkbox"; consentChk.checked = analyticsConsent;
     const consentLbl = el("label", "adt-set-check"); consentLbl.appendChild(consentChk);
-    consentLbl.appendChild(el("span", null, " Help improve this extension — share usage data"));
+    consentLbl.appendChild(el("span", null, " Help improve this extension (share usage data)"));
     const consentInfo = el("span", "adt-info", " ⓘ");
     consentInfo.title = "Shares the AstroBin image you open and its public acquisition details, the gear & settings you use, and errors - tagged with a random install id. No login or personal info.";
     consentLbl.appendChild(consentInfo);
@@ -743,6 +822,15 @@
       const sc = find(D.SCOPES, scopeI.value), cm = find(D.CAMERAS, camI.value);
       const apertureVal = parseFloat(apI.value) || (sc ? sc.aperture_mm : null);
       if (!apertureVal) { alert("Pick a scope or type an aperture (mm)."); return; }
+      const rigErr = validateRigInputs({
+        aperture_mm: apertureVal,
+        focal_mm: parseFloat(focI.value),
+        pixel_um: parseFloat(pixI.value),
+        qe_lum: parseFloat(qeI.value),
+        sky_bortle: bortleI.value !== "" ? parseFloat(bortleI.value) : null,
+        sky_sqm: sqmI.value !== "" ? parseFloat(sqmI.value) : null
+      });
+      if (rigErr) { alert(rigErr); return; }   // validate before auto-remembering or saving (#7)
       // auto-remember raw gear as private custom gear
       settings.adt_custom = settings.adt_custom || { CAMERAS: [], SCOPES: [], FILTERS: [] };
       if (scopeI.value && !sc) {
@@ -801,7 +889,7 @@
     gear.addEventListener("click", () => { settingsOpen = !settingsOpen; settingsEl.style.display = settingsOpen ? "" : "none"; });
 
     let includeMoon = false;
-    const hasMoon = image.moonPhase && image.moonPhase > 0.05;
+    const hasMoon = image.moonPhase && image.moonPhase > 0.30;
     if (hasMoon) {
       const ctrl = el("label", "adt-moon-ctrl");
       const cb = document.createElement("input"); cb.type = "checkbox"; ctrl.appendChild(cb);
@@ -813,7 +901,7 @@
     let ppBase = null;
     try { ppBase = window.ADT_ENGINE.compute(image, userRig).combinedTotalHours; } catch (e) {}
     p.appendChild(buildPerPixel(image, userRig, ppBase));
-    p.appendChild(el("div", "adt-foot", "Estimated time for your rig to match this image's depth (signal-to-noise per area of sky). Not a judgment of image quality."));
+    p.appendChild(el("div", "adt-foot", "Time for your rig to match this image's depth, not a judgment of image quality."));
     p.appendChild(buildCredit());
 
     function draw() {
@@ -828,7 +916,7 @@
         const st = c.state || (c.ok ? "ok" : "no");
         const mark = st === "ok" ? "✓ " : (st === "partial" ? "≈ " : "✗ ");
         const cls = st === "ok" ? "adt-tip-ok" : (st === "partial" ? "adt-tip-mid" : "adt-tip-no");
-        confTip.appendChild(el("div", "adt-tip-row " + cls, mark + escapeHtml(c.label) + " - " + escapeHtml(c.note)));
+        confTip.appendChild(htmlEl("div", "adt-tip-row " + cls, mark + escapeHtml(c.label) + " - " + escapeHtml(c.note)));
       });
       body.innerHTML = "";
       const hl = el("div", "adt-headline");
@@ -836,7 +924,7 @@
       hlMain.appendChild(el("span", "adt-hl-num", "≈ " + fmtH(result.headlineReferenceHours)));
       const apIn = Math.round(refData.aperture_mm / 25.4 * 10) / 10;
       const apInStr = (apIn % 1 === 0 ? String(apIn) : apIn.toFixed(1));
-      hlMain.appendChild(el("span", "adt-hl-lbl", "on a set rig for reference: " + apInStr + "″ scope · " + (refData.camera_label || "ASI2600MM") + " · bortle 1, no moon"));
+      hlMain.appendChild(el("span", "adt-hl-lbl", "on a set rig for reference: " + apInStr + "″ scope · " + (refData.camera_label || "ASI2600MM") + " · " + (refData.sky_label || "Bortle 4").toLowerCase() + ", no moon"));
       hl.appendChild(hlMain);
       if (result.referenceBroadbandHours != null && result.referenceNarrowbandHours != null) {
         hl.appendChild(el("div", "adt-hl-break",
@@ -851,7 +939,7 @@
       const tbl = el("table", "adt-table"); const tb = el("tbody");
       const rr = el("tr", "adt-rig-row");
       rr.title = FORMULA + "\nTime for your rig to reach the same depth per unit sky as this image. Hover a row for your actual numbers.";
-      rr.appendChild(el("td", "adt-rig-label", "On <b>" + escapeHtml(userRig.label) + "</b>" + (includeMoon ? " · with moon" : "")));
+      rr.appendChild(htmlEl("td", "adt-rig-label", "On <b>" + escapeHtml(userRig.label) + "</b>" + (includeMoon ? " · with moon" : "")));
       rr.appendChild(el("td", "", "")); tb.appendChild(rr);
       const bbMonoRows = (result.broadband && !result.broadband.userIsColor) ? (result.broadband.user || []).length : 0;
       if (result.broadband) {
@@ -889,10 +977,8 @@
         notes.push("Your " + r.userScale + "″/px vs image " + r.imageScale + "″/px - " + rel + ".");
       }
       (result.notes || []).forEach((n) => notes.push(n));
-      if (hasMoon && !includeMoon) notes.push("Main number is dark-sky. Image lists ~" + Math.round(image.moonPhase * 100) + "% moon phase - tick the box to factor it in (phase only).");
-      if (image.raw && image.raw.scopeSource === "astrobin") notes.push("Aperture pulled from AstroBin's equipment database.");
-      else if (image.raw && !image.raw.scopeMatched) notes.push("Telescope aperture not found - estimated.");
-      if (image.raw && image.raw.cameraQeSource === "astrobin") notes.push("Camera QE from AstroBin's sensor data (peak " + image.raw.cameraQePeak + "%, scaled per band).");
+      if (hasMoon && !includeMoon) notes.push("Dark-sky estimate: image had ~" + Math.round(image.moonPhase * 100) + "% moon; tick the box to include it.");
+      if (image.raw && !image.raw.scopeMatched) notes.push("Telescope aperture not found - estimated.");
       if (image._scaleSource === "derived") notes.push("Pixel scale computed from camera pixel size + focal length (this image wasn't plate-solved).");
       const abF = (image.channels || []).filter((c) => c.filter && c.filter.source === "astrobin");
       if (abF.length) notes.push("Filter bandwidth from AstroBin's database (transmission assumed): " + abF.map((c) => c.band + "≈" + c.filter.bandwidth_nm + "nm").join(", ") + ".");
@@ -909,7 +995,7 @@
       if (otherFlags.length) notes.push("Assumed: " + otherFlags.join("; ") + ".");
       if (notes.length) {
         const nd = el("div", "adt-notes");
-        notes.forEach((n) => nd.appendChild(el("div", "adt-note", "• " + escapeHtml(n).replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>"))));
+        notes.forEach((n) => nd.appendChild(htmlEl("div", "adt-note", "• " + escapeHtml(n).replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>"))));
         body.appendChild(nd);
       }
     }
@@ -925,13 +1011,13 @@
     p.appendChild(head);
     const settingsEl = buildSettings(settings); p.appendChild(settingsEl);
     gear.addEventListener("click", () => { settingsOpen = !settingsOpen; settingsEl.style.display = settingsOpen ? "" : "none"; });
-    p.appendChild(el("div", "adt-notes", '<div class="adt-note">• ' + escapeHtml(msg) + "</div>"));
+    p.appendChild(htmlEl("div", "adt-notes", '<div class="adt-note">• ' + escapeHtml(msg) + "</div>"));
     return p;
   }
 
   // ---------- orchestration ----------
   async function render() {
-    if (rendering) return;
+    if (rendering) { renderQueued = true; return; }   // don't drop a render requested mid-flight (#7)
     rendering = true;
     try {
       const container = window.ADT_PARSER.getContainer();
@@ -997,7 +1083,7 @@
         image.moon_fraction = 0;
         panel = buildPanel(image, settings);
         track("image_analyzed", {
-          url: idMatch ? "https://app.astrobin.com/i/" + imageId : "(unknown)", // canonical image page only — no query/tracking params (opt-in only)
+          url: idMatch ? "https://app.astrobin.com/i/" + imageId : "(unknown)", // canonical image page only; no query/tracking params (opt-in only)
           telescope: image.raw && image.raw.telescope,
           camera: image.raw && image.raw.camera,
           filters: image.raw && image.raw.filters,
@@ -1008,9 +1094,19 @@
           channels: image.channels.map((c) => ({ band: c.band, hours: c.hours }))
         });
       }
-      container.parentElement.insertBefore(panel, container);
+      // The awaits above can outlast an AstroBin route change. Re-check that we're
+      // still on the same image and the container is still live before inserting,
+      // so we never drop a stale panel onto the wrong page (#7).
+      const nowMatch = location.href.match(/\/i\/([^/?#]+)/) || location.href.match(/[?&]i=([^&#]+)/);
+      const nowId = (nowMatch && nowMatch[1]) || location.href;
+      const live = window.ADT_PARSER.getContainer();
+      if (nowId !== imageId || !live || !live.parentElement) { lastImageId = null; return; }
+      live.parentElement.insertBefore(panel, live);
     } catch (e) { console.error("[ADT] render error", e); track("error", { msg: String(e).slice(0, 200) }); }
-    finally { rendering = false; }
+    finally {
+      rendering = false;
+      if (renderQueued) { renderQueued = false; render(); }   // a navigation arrived mid-render; run once more (#7)
+    }
   }
 
   // ---------- SPA watch ----------

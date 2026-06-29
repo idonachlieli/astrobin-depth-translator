@@ -29,7 +29,7 @@ glance) and on **your own rig**, split by broadband and each narrowband line.
   - Bortle is a number field; SQM optional; "I shoot moonless" toggle.
   - **Add custom gear** (private, stored locally) for anything not in the database.
 - A **confidence** badge (hover it) shows which inputs are known vs estimated.
-- **Match this image at 100%:** open the per-pixel planner to find which scope/camera
+- **Could your gear capture this detail?** open the per-pixel planner to find which scope/camera
   reproduces the image's detail at 1:1 on your sensor. Adjust focal length, aperture, or
   f-ratio (lock one) and it shows whether you'd match the resolution and the time to get
   there - depth tells you how much signal, this tells you how much detail.

@@ -119,14 +119,14 @@
   // length / pixel scale never enter the per-area metric. Change APERTURE
   // here to retune the yardstick.
   const REFERENCE = {
-    label: "Reference (203mm / 8\" aperture, ASI2600MM, 7nm NB, Bortle 1, no moon)",
-    sky_label: "Bortle 1",
+    label: "Reference (203mm / 8\" aperture, ASI2600MM, 7nm NB, Bortle 4, no moon)",
+    sky_label: "Bortle 4",
     aperture_mm: 203,
     camera_label: "ASI2600MM",
     camera: { type: "mono", qe_lum: 0.82, qe_ha: 0.80, qe_oiii: 0.88, qe_sii: 0.78 },
     broadband: { bandwidth_nm: 300, transmission: 0.97 },
     narrowband: { bandwidth_nm: 7, transmission: 0.90 },
-    sky_sqm: 22.0,
+    sky_sqm: 21.2,
     moon_fraction: 0.0
   };
 

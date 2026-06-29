@@ -1,10 +1,10 @@
--- AstroBin Depth Translator — analytics storage (D1 / SQLite)
+-- AstroBin Depth Translator - analytics storage (D1 / SQLite)
 -- One row per opt-in event. data holds the event-specific JSON.
 
 CREATE TABLE IF NOT EXISTS events (
   row_id      INTEGER PRIMARY KEY AUTOINCREMENT,
   install_id  TEXT,      -- random per-install id (no personal info)
-  v           TEXT,      -- extension version, e.g. "0.1.0"
+  v           TEXT,      -- extension version, e.g. "0.1.1"
   event       TEXT,      -- opt_in | rig_saved | custom_gear | image_analyzed | error
   ts          INTEGER,   -- event time (epoch ms, from the browser)
   data        TEXT,      -- event payload as JSON text

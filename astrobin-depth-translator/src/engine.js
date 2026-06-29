@@ -25,12 +25,32 @@
 
   function skyFlux(sqm) { return Math.pow(10, -0.4 * sqm); }
 
+  // Bortle (continuous, 1..9) -> SQM. Every table entry is a knot; we sort them
+  // and linearly interpolate between adjacent knots. Because SQM strictly
+  // decreases with Bortle, this is continuous and strictly monotonic, i.e. a
+  // bijection onto its SQM range - any real Bortle (e.g. 3.14159) maps to a
+  // unique SQM (and is invertible). Outside [1,9] it clamps to the endpoints.
+  let _bortleKnots = null;
+  function bortleKnots() {
+    if (!_bortleKnots) {
+      _bortleKnots = Object.keys(DATA.BORTLE_SQM)
+        .map((k) => [parseFloat(k), DATA.BORTLE_SQM[k]])
+        .sort((a, b) => a[0] - b[0]);
+    }
+    return _bortleKnots;
+  }
   function bortleToSqm(bortle) {
     if (bortle == null) return null;
-    const key = String(bortle).replace(/[^0-9.]/g, "");
-    if (DATA.BORTLE_SQM[key] != null) return DATA.BORTLE_SQM[key];
-    const n = Math.round(parseFloat(key));
-    return DATA.BORTLE_SQM[String(n)] != null ? DATA.BORTLE_SQM[String(n)] : 21.0;
+    const v = parseFloat(String(bortle).replace(/[^0-9.]/g, ""));
+    if (!isFinite(v)) return 21.0;
+    const k = bortleKnots();
+    if (v <= k[0][0]) return k[0][1];
+    if (v >= k[k.length - 1][0]) return k[k.length - 1][1];
+    for (let i = 0; i < k.length - 1; i++) {
+      const [b0, s0] = k[i], [b1, s1] = k[i + 1];
+      if (v >= b0 && v <= b1) return s0 + (s1 - s0) * (v - b0) / (b1 - b0);
+    }
+    return 21.0;
   }
 
   // Effective sky SQM after moonlight. Moon brightens broadband only.
@@ -96,6 +116,15 @@
     const ref = buildReferenceRig();
     const result = { broadband: null, lines: [], reference: { broadband: null, lines: [] },
                      resolution: null, notes: [], headlineReferenceHours: null };
+
+    // #4 guard: invalid/missing rig specs would make the per-area math non-finite.
+    // The display already shows "-" for non-finite hours (round1 -> null -> fmtH),
+    // so here we just surface WHY, instead of leaving a bare "-".
+    if (!(userRig.aperture_mm > 0)) {
+      result.notes.push("Your rig has no valid aperture - set it under gear; your-rig times can't be computed.");
+    } else if (!userRig.camera || !(userRig.camera.qe_lum > 0)) {
+      result.notes.push("Your camera QE looks invalid - check it under gear; your-rig times may be unreliable.");
+    }
 
     const bbChannels = image.channels.filter(c => isBroadband(c.band));
     const lineChannels = image.channels.filter(c => !isBroadband(c.band));

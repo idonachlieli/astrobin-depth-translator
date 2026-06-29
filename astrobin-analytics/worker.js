@@ -1,9 +1,9 @@
 /*
- * AstroBin Depth Translator — analytics collector (Cloudflare Worker)
+ * AstroBin Depth Translator - analytics collector (Cloudflare Worker)
  * --------------------------------------------------------------------------
  * Two jobs:
  *   POST /collect          <- the extension sends opt-in events here. Open to
- *                             anyone (it has to be — it's called from browsers).
+ *                             anyone (it has to be - it's called from browsers).
  *   GET  /dump?key=SECRET   -> returns EVERY stored event as NDJSON (one JSON
  *                             object per line). Protected by your DUMP_KEY so
  *                             only you can read the data back out.
@@ -37,6 +37,9 @@ export default {
 
     // ---- Collect an event ----
     if (request.method === "POST" && url.pathname === "/collect") {
+      // Reject an oversized body before parsing it into memory (#10).
+      const clen = parseInt(request.headers.get("content-length") || "0", 10);
+      if (clen > 16384) return json({ error: "too large" }, 413);
       let p;
       try {
         p = await request.json();
@@ -44,7 +47,7 @@ export default {
         return json({ error: "bad json" }, 400);
       }
       // Expected shape: { id, v, event, ts, data }
-      // Only accept the known event names — keeps junk/abuse out of the table.
+      // Only accept the known event names - keeps junk/abuse out of the table.
       const ALLOWED = ["opt_in", "rig_saved", "custom_gear", "image_analyzed", "error"];
       if (!p || typeof p.event !== "string" || !ALLOWED.includes(p.event)) {
         return json({ error: "bad event" }, 400);
@@ -84,10 +87,12 @@ export default {
       }
       // Optional incremental pull: /dump?key=...&since=<row_id>
       const since = parseInt(url.searchParams.get("since") || "0", 10) || 0;
+      // Cap rows per request so /dump can't return unbounded data (#10); page with &since=<last row_id>.
+      const limit = Math.min(parseInt(url.searchParams.get("limit") || "50000", 10) || 50000, 50000);
       const { results } = await env.DB.prepare(
-        "SELECT row_id, install_id, v, event, ts, data, received_at FROM events WHERE row_id > ? ORDER BY row_id ASC"
+        "SELECT row_id, install_id, v, event, ts, data, received_at FROM events WHERE row_id > ? ORDER BY row_id ASC LIMIT ?"
       )
-        .bind(since)
+        .bind(since, limit)
         .all();
 
       const lines = (results || []).map((r) =>
@@ -102,7 +107,7 @@ export default {
         })
       );
       return new Response(lines.join("\n") + (lines.length ? "\n" : ""), {
-        headers: { "Content-Type": "application/x-ndjson", ...CORS },
+        headers: { "Content-Type": "text/plain; charset=utf-8", ...CORS },
       });
     }
 

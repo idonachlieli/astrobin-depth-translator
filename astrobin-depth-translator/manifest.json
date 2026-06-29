@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AstroBin Depth Translator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "On any AstroBin image, estimates how deep its data really is and how long your own gear and sky would need to match it.",
   "permissions": ["storage"],
   "host_permissions": [

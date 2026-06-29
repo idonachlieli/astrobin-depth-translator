@@ -115,9 +115,10 @@ def build_summary(events):
                 sky_bortle += 1
         elif evt == "custom_gear":
             if d.get("model"):
-                if d.get("cat") == "camera":
+                cat = str(d.get("cat") or "").upper()   # content sends CAMERAS/SCOPES/FILTERS (#13)
+                if cat in ("CAMERAS", "CAMERA"):
                     cameras[norm(d["model"])] += 1
-                elif d.get("cat") == "telescope":
+                elif cat in ("SCOPES", "SCOPE", "TELESCOPE", "TELESCOPES"):
                     scopes[norm(d["model"])] += 1
         elif evt == "error":
             errors[(d.get("msg") or "?")[:120]] += 1
@@ -148,7 +149,7 @@ def print_report(s):
         print(f"{label:<26}{val}")
 
     print("=" * 52)
-    print("AstroBin Depth Translator — analytics summary")
+    print("AstroBin Depth Translator - analytics summary")
     print("=" * 52)
     line("Total events", s["total_events"])
     line("Unique installs", s["unique_installs"])

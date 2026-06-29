@@ -49,22 +49,39 @@
 
   function norm(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
   function nospace(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+  function numTokens(s) { return (String(s).match(/\d+/g)) || []; }
   function matchModel(list, pageStr) {
     const p = norm(pageStr), pn = nospace(pageStr);
     if (!p) return null;
-    let best = null, bestScore = 0;
+    let best = null, bestScore = 0, bestVia = null;
     for (const item of list) {
       const m = norm(item.model), mn = nospace(item.model);
-      let score = 0;
+      let score = 0, via = "token";
       // ignore spacing/punctuation first ("G3M 178C" == "G3M178C") - a strong, specific match
-      if (pn && mn && (pn.includes(mn) || mn.includes(pn))) score = Math.min(pn.length, mn.length) * 2;
-      else if (p.includes(m) || m.includes(p)) score = Math.min(p.length, m.length);
+      if (pn && mn && (pn.includes(mn) || mn.includes(pn))) { score = Math.min(pn.length, mn.length) * 2; via = "strong"; }
+      else if (p.includes(m) || m.includes(p)) { score = Math.min(p.length, m.length); via = "strong"; }
       else {
         const pt = new Set(p.split(" ")), mt = m.split(" ");
         score = mt.filter(t => t.length > 1 && pt.has(t)).join("").length;
+        via = "token";
       }
-      if (score > bestScore) { bestScore = score; best = item; }
+      if (score > bestScore) { bestScore = score; best = item; bestVia = via; }
     }
+    // A token match (won on shared brand/family words, not a substring) is trusted
+    // only if the page confirms the candidate's model number. If the candidate has
+    // a model number the page doesn't share (e.g. "Fluorostar 132" vs "RedCat 51",
+    // or "200PDS" vs "150PDS"), reject it so the caller falls back to AstroBin's
+    // authoritative spec. Scope: token matches only. A bare substring like
+    // "William Optics" can still match via the substring path above; that's
+    // acceptable because AstroBin equipment values reliably carry full model names.
+    if (best && bestVia === "token") {
+      const pN = numTokens(pageStr), mN = numTokens(best.model);
+      if (mN.length && !pN.some(n => mN.includes(n))) return null;
+    }
+    // Even a "strong" substring match is untrustworthy if the page string is too
+    // generic to name a model: no digit at all and not an exact full-name match
+    // (e.g. a bare "William Optics"). Let the caller use AstroBin's spec instead (#8).
+    if (best && !/\d/.test(pageStr) && nospace(pageStr) !== nospace(best.model)) return null;
     return bestScore >= 3 ? best : null;
   }
 
@@ -169,6 +186,7 @@
 
   // Assemble the engine-ready image object.
   function buildImage() {
+    if (!DATA || !root.ADT_ENGINE) return null;     // dependencies not loaded (manifest load order normally guarantees they are)
     const integ = parseIntegration();
     if (!integ.channels.length) return null;        // not an image page / no data
     const equip = parseEquipment();

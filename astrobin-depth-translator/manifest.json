@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "AstroBin Depth Translator",
+  "version": "0.1.0",
+  "description": "On any AstroBin image, estimates how deep its data really is and how long your own gear and sky would need to match it.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://app.astrobin.com/*",
+    "https://www.astrobin.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.astrobin.com/*",
+        "https://www.astrobin.com/*"
+      ],
+      "js": [
+        "src/equipment.js",
+        "src/engine.js",
+        "src/parser.js",
+        "src/content.js"
+      ],
+      "css": ["src/panel.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "AstroBin Depth Translator",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}

@@ -1,0 +1,676 @@
+
+ASTROBIN DEPTH TRANSLATOR - TECHNICAL DOCUMENTATION
+===================================================
+
+The reasoning, the physics, the formulas, and the implementation.
+
+Version 0.1.0 · June 2026
+
+----------------------------------------------------------------------
+
+
+Table of contents
+-----------------
+
+1. What this extension is, and the problem it solves
+2. The central idea: depth per unit area of sky
+3. The physics, from photons to a comparable number
+4. The depth formulas
+5. The translator: converting one rig's time to another's
+6. Why focal length and pixel size do not appear
+7. Bands, not filters
+8. Colour sensors and the Bayer matrix
+9. Sky brightness: SQM, Bortle, and the Moon
+10. The reference rig (the universal yardstick)
+11. The headline number: total shooting time
+12. Multi-line filters: dual-band vs. filter sets
+13. The confidence score
+14. A fully worked example
+15. Assumptions and limitations
+16. Where the numbers come from (data sources)
+17. Software architecture
+18. Privacy and analytics
+19. Glossary of symbols
+
+----------------------------------------------------------------------
+
+
+1. What this extension is, and the problem it solves
+----------------------------------------------------
+
+AstroBin is the largest database of astrophotography in the world. Every image
+lists how long it was exposed - its integration time - often as a headline
+figure like "42 hours." Newcomers and veterans alike use that number as a proxy
+for "how good" or "how deep" an image is.
+
+It is a deeply misleading proxy.
+
+Integration time only tells you how long the shutter was open. It says nothing
+about how much light was actually collected, which is what determines how deep an
+image really goes. Two images of the same target, both at "10 hours," can differ
+by more than a factor of ten in real signal collected, because the amount of
+light gathered depends on:
+
+  • Aperture - a 200 mm telescope collects roughly seven times the light of a
+  75 mm refractor at the same exposure time.
+  • Sky brightness - an hour under a pristine rural sky is worth many hours
+  from a light-polluted city.
+  • Sensor and filter throughput - quantum efficiency, filter transmission,
+  and filter bandwidth all change how much usable signal lands on the sensor.
+  • Whether it is broadband or narrowband, and how the colour sensor's Bayer
+  matrix splits the light.
+
+So "hours" is the wrong currency. It is like comparing two journeys by how long
+the engine ran, ignoring the speed of the vehicle.
+
+AstroBin Depth Translator replaces that broken comparison. It adds a small
+panel to any AstroBin image and answers two questions:
+
+1. How deep is this image, really? - expressed as a single, gear-independent
+   number on a fixed reference setup, so any two images become directly
+   comparable at a glance.
+2. How long would it take me to match it? - the equivalent exposure time on
+   your own telescope, camera, filters, and sky, broken down per band.
+
+It is not a judgement of artistic quality, framing, processing, or seeing. It
+estimates one physical thing: the depth of the underlying data.
+
+----------------------------------------------------------------------
+
+
+2. The central idea: depth per unit area of sky
+-----------------------------------------------
+
+The quantity that actually matters for deep-sky imaging is **signal-to-noise
+ratio (SNR)** - how far the faint target signal rises above the random noise in
+the image. More integration, more aperture, and darker skies all increase SNR.
+"Depth" in this document means SNR on the faint, extended structure of a target
+(nebulosity, galaxy arms, tidal streams).
+
+The key modelling decision is to measure SNR per unit area of sky - per fixed
+patch of the sky as seen from Earth (for example, per square arcsecond) - rather
+than per pixel.
+
+Why per area and not per pixel? Because per-pixel SNR depends on how finely you
+sample the sky, which is an arbitrary choice of optics and sensor, not a property
+of how much real data you collected:
+
+  • A long focal length spreads a patch of sky across many pixels. Each pixel
+  receives fewer photons, so per-pixel SNR drops - but you have more pixels.
+  • A short focal length crams the same patch onto fewer pixels. Each pixel gets
+  more photons, so per-pixel SNR rises - but you have fewer pixels.
+
+In both cases the total light collected from that patch of sky is the same. If
+you measure SNR over a fixed area of sky (summing or averaging across whatever
+pixels happen to cover it), the arbitrary sampling choice cancels out, and you
+are left with a number that reflects genuine data depth. This is exactly how
+experienced imagers think when they say a fast, small scope and a slow, large
+scope "go equally deep per unit time" - they are comparing area-normalised SNR.
+
+This single choice is what makes the whole comparison fair and is the foundation
+of everything below.
+
+----------------------------------------------------------------------
+
+
+3. The physics, from photons to a comparable number
+---------------------------------------------------
+
+Consider one fixed patch of sky containing part of the target. Over an exposure
+of duration t, the telescope collects photons from two sources: the target and
+the sky background.
+
+
+Signal
+
+The number of target photons detected from that patch is proportional to:
+
+    S  ∝  A · Σ_target · QE · T · Δλ · t
+
+where:
+
+  • A = collecting area of the aperture (∝ the square of the aperture diameter D)
+  • Σ_target = surface brightness of the target in that patch (a property of the
+  object, identical for everyone imaging it)
+  • QE = quantum efficiency of the sensor (fraction of photons detected)
+  • T = transmission of the filter (fraction of light passed)
+  • Δλ = bandwidth - the width of the spectral window the filter admits
+  • t = exposure time
+
+
+Noise
+
+Deep-sky imaging from any real sky is almost always background-limited: the
+dominant source of noise is the random (Poisson) fluctuation in the sky-glow
+photons, not the camera's read noise or dark current. For a Poisson process the
+noise equals the square root of the number of events, so the noise from the sky
+background in that patch is:
+
+    N  ∝  √( A · Σ_sky · QE · T · Δλ · t )
+
+where Σ_sky is the sky surface brightness (how bright the background glow is).
+
+
+Signal-to-noise ratio
+
+Dividing signal by noise:
+
+    SNR = S / N  ∝  Σ_target · √( A · QE · T · Δλ · t / Σ_sky )
+
+Two things fall out of this immediately:
+
+1. The target's surface brightness Σ_target is a constant for everyone
+   photographing the same object. When we compare two images of the same target,
+   it cancels. That is why the target itself never appears in any of the
+   extension's formulas - and why the tool works without knowing what the object
+   is.
+
+2. SNR grows as the square root of (aperture area × throughput × time ÷ sky).
+   Because area ∝ D², the square root of area is ∝ D, the aperture diameter. This
+   is the origin of every term in the engine.
+
+We define depth as the part of SNR that depends on the gear, the sky, and the
+time (everything except the cancelling target term):
+
+    depth  ∝  D · √( QE · T · Δλ · t / Σ_sky )      (broadband)
+
+----------------------------------------------------------------------
+
+
+4. The depth formulas
+---------------------
+
+It is convenient to separate the rate at which depth accumulates from the time
+itself. Since depth grows as √t, we write:
+
+    depth = coeff · √t
+
+where coeff is the per-rig "depth rate" - how fast a given telescope, sensor,
+filter and sky build up signal-to-noise. It does not depend on time.
+
+The two regimes (broadband and emission line) differ in how bandwidth enters.
+
+
+Broadband (luminance, R, G, B)
+
+For broadband light, both the target and the sky span the filter's band, so a
+wider band collects proportionally more of both. The signal grows with Δλ and the
+sky noise grows with √Δλ, leaving a net √Δλ benefit:
+
+    coeff_broadband = D · √( QE · T · Δλ / Σ_sky )
+
+A wider broadband filter therefore goes deeper per unit time (more total photons),
+which is why luminance - the widest band - dominates broadband depth.
+
+
+Emission line (Hα, OIII, SII)
+
+For a narrowband emission line, essentially all of the target's light sits inside
+a very thin spectral line. As long as the filter is at least as wide as the line,
+narrowing the filter further does not cut the target signal - but it does
+cut the sky background that leaks through. So for a line, the signal is
+independent of bandwidth, while the sky noise still grows with √Δλ:
+
+    coeff_line = D · √( QE · T / (Σ_sky · Δλ) )
+
+Here a narrower filter goes deeper, because it rejects more skyglow and
+moonlight while preserving the line. This is the whole reason 3 nm narrowband
+filters outperform 7 nm filters under bright skies.
+
+
+Sky flux
+
+The sky surface brightness Σ_sky is derived from the sky-quality measure SQM
+(magnitudes per square arcsecond) using the standard magnitude-to-flux relation:
+
+    Σ_sky  ∝  10^(−0.4 · SQM)
+
+A higher SQM means a darker sky and exponentially less background flux. Each
+1.0 mag/arcsec² of darker sky is about 2.5× less sky flux.
+
+
+Matching an image
+
+To find how long your rig needs to reach the same depth as an image, set your
+depth equal to the image's depth and solve for time:
+
+    depth_image = coeff_you · √(your_time)
+    ⟹  your_time = ( depth_image / coeff_you )²
+
+----------------------------------------------------------------------
+
+
+5. The translator: converting one rig's time to another's
+---------------------------------------------------------
+
+Combining the two relations above, the time your rig needs to match an image is:
+
+    your_time = their_time · ( coeff_them / coeff_you )²
+
+Expanding the coefficient ratio for broadband gives the intuitive, fully explicit
+translator formula the extension shows on hover:
+
+    your_time = their_time
+              · (D_them / D_you)²            ← aperture: collecting-area ratio
+              · (QE·T·Δλ)_them /(QE·T·Δλ)_you ← sensor + filter efficiency
+              · (Σ_sky,you / Σ_sky,them)      ← your sky vs. their sky
+
+For an emission line the bandwidth term flips (it divides rather than multiplies,
+per the line coefficient), and a Bayer-area term is added for colour sensors
+(Section 8).
+
+Each factor has a plain-language meaning:
+
+  • Aperture ratio (squared): a scope with half the aperture needs four times
+  the exposure, because collecting area scales with the square of diameter.
+  • Sensor + filter efficiency: a more sensitive sensor or higher-throughput
+  filter shortens the required time proportionally.
+  • Sky ratio: imaging from a brighter sky multiplies the time needed; from a
+  darker sky, it divides it.
+
+Crucially, the target's brightness cancels (it is the same object), so the
+translator never needs to know what the object is.
+
+----------------------------------------------------------------------
+
+
+6. Why focal length and pixel size do not appear
+------------------------------------------------
+
+A frequent and reasonable question: *surely pixel size, focal length, and
+f-ratio matter?* For framing and resolution, yes. For per-area depth, no - and
+this is a direct consequence of the per-area choice in Section 2.
+
+  • Focal length changes the image scale: it determines how much sky lands on
+  each pixel, i.e. how big the target appears. It does not change how many target
+  photons the aperture collects from a given patch of sky.
+  • Pixel size changes how that fixed bucket of photons is divided among
+  pixels. Smaller pixels split it into more, fainter pixels; larger pixels into
+  fewer, brighter ones. Summed over a fixed area of sky, the total is unchanged.
+  • F-ratio (focal length ÷ aperture) is famous for setting per-pixel exposure
+  speed - the "f-ratio myth" debate in astrophotography. Per pixel, a faster
+  f-ratio is brighter. But per unit area of sky, only the aperture (total light
+  grasp) and throughput matter. Two scopes of equal aperture reach the same
+  per-area depth in the same time regardless of f-ratio; the faster one simply
+  packs that depth into a wider field at coarser resolution.
+
+So the reference rig and the engine deliberately ignore focal length and pixel
+size for the depth calculation. They are not thrown away, though: the extension
+separately compares your pixel scale (computed as 206.265 × pixel_µm ÷ focal_mm,
+in arcseconds per pixel) to the image's, and reports whether your setup would
+sample the target more finely or more coarsely. That is a statement about
+resolution, kept distinct from depth.
+
+----------------------------------------------------------------------
+
+
+7. Bands, not filters
+---------------------
+
+Real images are built from several channels. The extension reasons in terms of
+bands rather than individual filter brands, and never mixes the two physical
+regimes into one number.
+
+  • Broadband, mono camera: each of L, R, G, B is captured separately. The tool
+  reports the time per channel and a broadband subtotal (their sum, since they are
+  shot one after another).
+  • Broadband, colour (OSC) camera: R, G, B are captured simultaneously in one
+  exposure through the Bayer matrix, so broadband is reported as a single combined
+  number.
+  • Narrowband: each emission line (Hα, OIII, SII) is treated on its own, with
+  its own depth and its own required time, because the lines are physically
+  independent and a filter that is great for one may be useless for another.
+
+When an image combines broadband and narrowband data, the two are **never blended
+into a single depth scalar** - adding an SNR figure from a 300 nm luminance band
+to one from a 3 nm OIII line would be physically meaningless. They are shown as
+separate groups. (A total clock time across all bands is still meaningful and is
+shown as the headline - see Section 11 - because time is additive even when depth
+is not.)
+
+To combine the broadband channels into one broadband depth, their individual
+depths are added in quadrature (root-sum-square), which is the correct way to
+combine independent signal-to-noise contributions:
+
+    depth_broadband_total = √( depth_L² + depth_R² + depth_G² + depth_B² )
+
+----------------------------------------------------------------------
+
+
+8. Colour sensors and the Bayer matrix
+--------------------------------------
+
+A one-shot-colour (OSC) sensor places a red, green, or blue micro-filter over each
+pixel in a repeating mosaic (the Bayer matrix: 25% red, 50% green, 25% blue). This
+has a large effect on narrowband performance that the model accounts for
+explicitly.
+
+  • For an emission line on a colour sensor, only the pixels whose colour
+  matches the line actually detect it. Hα and SII (deep red) are seen mainly by
+  the 25% of pixels that are red; OIII (blue-green) by roughly the 50% that are
+  green (and some blue). The model multiplies the native pixel QE by this **Bayer
+  area fraction** (0.25 for Hα/SII, 0.50 for OIII), because only that fraction of
+  the sensor area is collecting the line. This is why a colour camera with a
+  dual-band filter is dramatically slower on narrowband than a mono camera with
+  dedicated filters - often by 4× or more - and the tool will flag truly
+  impractical cases.
+  • For broadband on a colour sensor, the Bayer loss is already baked into the
+  effective broadband quantum efficiency (qe_lum) stored for that camera, so no
+  additional area factor is applied - applying it twice would double-count.
+
+For mono sensors the Bayer fraction is 1.0 throughout (every pixel sees every
+band, through whichever filter is mounted).
+
+----------------------------------------------------------------------
+
+
+9. Sky brightness: SQM, Bortle, and the Moon
+--------------------------------------------
+
+Sky brightness enters every formula through Σ_sky, and the extension determines it
+in order of preference:
+
+1. Measured SQM if the image lists one - the most accurate input, used
+   directly.
+2. Bortle class if only that is given - converted to a representative SQM via
+   a standard lookup table (for example Bortle 4 ≈ 21.2, Bortle 6 ≈ 19.9, Bortle 8
+   ≈ 18.4 mag/arcsec²). This is an approximation, and the confidence score is
+   reduced accordingly (Section 13).
+3. A dark-sky default (SQM ≈ 21.0) if nothing is listed, clearly noted.
+
+
+Narrowband and skyglow
+
+Narrowband filters reject the vast majority of light pollution and moonlight,
+because city lighting and the Moon emit little at the exact wavelengths of the
+target lines. A bright broadband sky therefore does not translate into a
+bright narrowband sky. The engine enforces a narrowband sky floor (treating
+the narrowband sky as no worse than roughly SQM 21.3 regardless of Bortle), so it
+will not wrongly punish narrowband imaging from a city. This matches the lived
+experience that narrowband works well even under heavy light pollution.
+
+
+Moonlight
+
+The Moon brightens the broadband sky only. The extension models moonlight as
+an additive reduction in the effective SQM that grows non-linearly toward full
+Moon (using the square of the illuminated fraction as a coarse proxy, since
+moonlit sky brightness rises steeply near full). It is applied to broadband bands
+only; narrowband is left on its floor. The Moon contribution is off by default
+and exposed as a checkbox, because most serious deep-sky work is planned around
+the Moon; ticking it factors in the image's listed lunar phase.
+
+----------------------------------------------------------------------
+
+
+10. The reference rig (the universal yardstick)
+-----------------------------------------------
+
+To make any two images comparable regardless of who shot them, the extension
+expresses every image's depth as the equivalent time on a single fixed
+reference rig - the "reference-hours" figure. The reference is:
+
+  • 203 mm (8") aperture - a common, mid-range deep-sky aperture.
+  • An ASI2600MM-class monochrome sensor, with realistic per-band quantum
+  efficiencies.
+  • 7 nm narrowband filters and standard broadband filters at typical
+  transmissions.
+  • Bortle 4 sky (SQM ≈ 21.2), no Moon.
+
+Because focal length and pixel size do not affect per-area depth (Section 6), the
+reference does not need to specify them. The reference is a tunable constant: it
+is the yardstick, not a claim that everyone should own this rig. Its only purpose
+is to give every image a number on the same scale, so that "31 reference-hours"
+means the same depth whether the image was shot on a 60 mm refractor or a metre-
+class telescope.
+
+----------------------------------------------------------------------
+
+
+11. The headline number: total shooting time
+--------------------------------------------
+
+The large headline figure is the total reference-hours across all bands - the
+whole time the reference scope would spend shooting to reach this image's depth in
+every band it contains: the combined broadband group plus each narrowband line,
+summed.
+
+This is deliberately a sum of clock time, not a single depth. As noted in Section
+7, depths across different band kinds cannot be added, but the time spent
+acquiring them can - and "how long in total" is the most intuitive headline for
+"how big a project is this." Beneath the headline, a breakdown line splits it into
+its broadband and narrowband portions (for example "6 min broadband + 31 h 30 m
+narrowband"), so the dominant cost is always visible.
+
+The per-rig table below the headline mirrors this: it lists each band's time on
+your gear, a broadband subtotal, a narrowband subtotal, and a grand total -
+indented detail rows under flush subtotals, so the hierarchy reads at a glance.
+
+----------------------------------------------------------------------
+
+
+12. Multi-line filters: dual-band vs. filter sets
+-------------------------------------------------
+
+A subtlety that the extension gets right, and which is easy to get wrong:
+narrowband total time depends on how the lines are captured.
+
+  • A true dual- or tri-band filter (for example an Optolong L-eXtreme, which
+  passes Hα and OIII through one piece of glass) captures all of its lines **in a
+  single exposure, simultaneously.** The total narrowband time is therefore the
+  time of the slowest line it covers - the others come "for free" in the same
+  sub-exposures. The engine groups the lines served by one such filter and takes
+  the maximum.
+
+  • A filter set or bundle (for example an SHO set of separate 7 nm Hα, OIII,
+  and SII filters) is three separate filters, shot one at a time, sequentially.
+  Their times add up. The engine sums them.
+
+Confusing the two understates a set's real cost dramatically. For example, with a
+sequential SHO set, 8 hours of Hα plus 25 hours of OIII is a 33-hour project - not
+a 25-hour one. The extension distinguishes the cases with a set flag, inferred
+from the filter being a recognised set/bundle, or carrying three or more emission
+lines (no single interference filter usefully passes Hα, OIII, and SII at once),
+or having "set"/"bundle" in its name. Dual/tri-band filters default to the
+simultaneous (max) treatment; sets to the sequential (sum) treatment.
+
+----------------------------------------------------------------------
+
+
+13. The confidence score
+------------------------
+
+Every estimate is only as good as its inputs, so the panel shows a confidence
+badge with a hover breakdown of four checks:
+
+1. Image camera QE - was the sensor matched to a known quantum efficiency, or
+   estimated?
+2. Sky brightness - a measured SQM is fully solid; a Bortle class is a good
+   approximation (partial credit); nothing listed is a gap.
+3. Image filters - were the bandwidths and transmissions identified, or
+   assumed from standard specs?
+4. Your rig specs - is your own gear fully entered?
+
+Each check contributes a score: 1.0 for a solid input, 0.75 for a reasonable
+approximation (such as sky-from-Bortle), 0.0 for missing. The overall rating is
+the total score divided by the number of checks:
+
+  • ≥ 0.95 → High
+  • ≥ 0.80 → Medium-High
+  • ≥ 0.50 → Medium
+  • otherwise → Low
+
+So an image with everything known except a measured SQM (Bortle given instead)
+lands at Medium-High; with a real SQM it reaches High; with no sky data at
+all it drops to Medium. The badge is colour-coded and the hover lists each
+check with a ✓ (solid), ≈ (approximate), or ✗ (missing) marker, so the user always
+knows how much to trust the number.
+
+----------------------------------------------------------------------
+
+
+14. A fully worked example
+--------------------------
+
+Suppose an image was shot on a 203 mm scope with a mono ASI2600MM-class sensor
+under a Bortle 4 sky, with 12 h of luminance and 6 h of Hα through a 7 nm filter,
+and you want to know the time on the same class of rig.
+
+For luminance (broadband), the coefficient is coeff = D · √(QE·T·Δλ / Σ_sky).
+Because your rig matches the reference closely, your luminance coefficient is
+near the reference's, so your luminance time comes out near the original 12 h, and
+R/G/B each near their listed times. Summed, that is the broadband subtotal.
+
+For Hα (a line), coeff = D · √(QE·T / (Σ_sky · Δλ)). With the same aperture,
+sensor, 7 nm filter and sky, your Hα time again lands near the original 6 h.
+
+The headline reference-hours is the sum of the combined broadband group and the
+Hα line - the whole shooting project on the yardstick rig. Because every input is
+known except the sky is given as Bortle rather than a measured SQM, the confidence
+reads Medium-High.
+
+Now change one thing: image the same target from your back garden at Bortle 7
+instead of Bortle 4. The sky ratio term Σ_sky,you / Σ_sky,them rises sharply for
+the broadband channels (skyglow is far worse), multiplying your broadband time
+several-fold - while the Hα time barely moves, because the narrowband sky floor
+shields it from the light pollution. The panel would show the broadband ballooning
+and the narrowband almost unchanged, exactly as a real imager would experience.
+
+----------------------------------------------------------------------
+
+
+15. Assumptions and limitations
+-------------------------------
+
+The model is a physically-grounded estimate, not a laboratory measurement. Its
+main simplifying assumptions:
+
+  • Background-limited imaging. It assumes sky-background noise dominates read
+  noise and dark current. This holds for typical deep-sky sub-exposures from a
+  real sky, but breaks down for very short subs, extremely narrow filters under
+  truly dark skies, or sensors with unusually high read noise. Two cameras with
+  identical QE but different read noise are treated as equal.
+  • Read noise and dark current are not modelled. Only QE, transmission,
+  bandwidth, aperture, sky, and time enter.
+  • Filter passes the whole line. For emission lines it assumes the filter is at
+  least as wide as the target line, so narrowing rejects only sky, not signal.
+  • Quantum efficiencies are catalogue/peak values, from a built-in table or
+  estimated when unknown; AstroBin does not publish QE.
+  • Filter transmission and bandwidth are sometimes assumed. AstroBin publishes
+  bandwidth for some filters but never transmission, so standard per-type values
+  are used and disclosed in the notes.
+  • Surface brightness is uniform within a patch. The per-area treatment is an
+  average; it does not model how SNR varies across bright cores vs. faint outskirts.
+  • It estimates depth, not quality. Framing, focus, guiding, seeing,
+  processing skill, and artistic merit are entirely outside its scope.
+  • Outputs are only as good as the metadata each image's author entered on
+  AstroBin. Missing or wrong gear/sky data propagates into the estimate, which is
+  why the confidence score exists.
+
+----------------------------------------------------------------------
+
+
+16. Where the numbers come from (data sources)
+----------------------------------------------
+
+  • The image's acquisition card on the page is read directly from the rendered
+  AstroBin image viewer: integration time per channel, the equipment list, and the
+  sky/pixel-scale details in the astrometry header. Every selector has a text-based
+  fallback so a markup change degrades gracefully rather than breaking.
+  • AstroBin's own public equipment API is queried (the same data the website
+  itself loads) to fill in aperture and focal length for telescopes, and bandwidth
+  and sensor details for cameras and filters, when a piece of gear is not in the
+  built-in table. Results are cached locally so the same item is never requested
+  twice.
+  • A built-in equipment table supplies the specifications AstroBin does not
+  publish - principally sensor quantum efficiencies and filter transmissions - for
+  common cameras, scopes, and filters, plus the user's own gear. It is editable,
+  and any gear you enter is remembered privately in your browser.
+
+No scraping of AstroBin's protected data is performed; only the public API and the
+already-rendered page content are used.
+
+----------------------------------------------------------------------
+
+
+17. Software architecture
+-------------------------
+
+The extension is a Manifest V3 Chrome extension with no build step - plain
+JavaScript, injected as content scripts on AstroBin image pages.
+
+  • equipment.js - the data layer: the camera/scope/filter tables, the
+  Bortle→SQM table, the reference rig, and the physical constants (Bayer
+  fractions, moon model, narrowband sky floor, practical-time limit). Exposes
+  window.ADT_DATA.
+  • engine.js - the calculation engine: the per-area depth model, the
+  coefficient functions, the translator, the reference-hours and subtotal
+  computations, and the confidence score. Pure functions, independently testable
+  in Node. Exposes window.ADT_ENGINE.
+  • parser.js - reads the rendered AstroBin page into an engine-ready image
+  object (channels, equipment, sky), with robust fallbacks. Exposes
+  window.ADT_PARSER.
+  • content.js - orchestration and UI: builds the panel, the inline gear
+  settings (type-ahead search backed by the AstroBin API, raw-spec entry, private
+  custom gear, multi-filter chips), draws the results table, and watches the
+  single-page app for navigation so the panel re-renders on each image.
+  • panel.css - styling that mirrors AstroBin's dark theme.
+  • background.js - a minimal service worker that exists only to relay the
+  optional, off-by-default analytics events (Section 18).
+
+The scripts load in dependency order (data → engine → parser → content) and
+communicate through the three window.ADT_* globals. Editing any file requires
+reloading the unpacked extension and refreshing the AstroBin tab to re-inject the
+updated content script.
+
+----------------------------------------------------------------------
+
+
+18. Privacy and analytics
+-------------------------
+
+The extension is built to run entirely in the browser. It reads only the AstroBin
+page you are viewing and AstroBin's public equipment API; it accesses no other
+sites and reads no browsing history. Your gear settings and the cached equipment
+specs are stored locally in Chrome's storage.local and never leave your device.
+It requires no account or login.
+
+There is an optional, off-by-default anonymous analytics toggle. Only if you
+explicitly tick it (and only if the developer has configured a collection
+endpoint, which ships empty) does it send anonymous events - a random install ID,
+which gear and settings are used, and error messages - to help improve the tool.
+It never includes your name, your AstroBin account, image URLs, or any personal
+data, and can be turned off at any time. This honest opt-in design was a
+deliberate choice over any hidden or pre-ticked collection, both because it is the
+right thing to do and because deceptive data collection is prohibited by the
+Chrome Web Store and would destroy trust with a technical audience.
+
+----------------------------------------------------------------------
+
+
+19. Glossary of symbols
+-----------------------
+
+  • D - aperture diameter (mm). Collecting area A ∝ D².
+  • QE - quantum efficiency; fraction of incident photons detected (0–1).
+  • T - filter transmission; fraction of light passed (0–1).
+  • Δλ - filter bandwidth (nm); the width of the spectral window.
+  • Σ_target - target surface brightness; cancels between images of the same object.
+  • Σ_sky - sky surface brightness (flux); Σ_sky ∝ 10^(−0.4 · SQM).
+  • SQM - sky quality measure, magnitudes per square arcsecond; higher = darker.
+  • t - exposure (integration) time.
+  • coeff - per-rig depth rate; depth = coeff · √t.
+  • depth - gear/sky/time-dependent part of SNR per unit area of sky.
+  • Bayer fraction - share of a colour sensor's pixels that detect a given line
+  (≈0.25 Hα/SII, ≈0.50 OIII; 1.0 for mono).
+  • reference-hours - an image's depth expressed as time on the fixed reference rig.
+  • pixel scale - arcseconds per pixel = 206.265 × pixel_µm ÷ focal_mm; a
+  resolution measure, not a depth measure.
+
+----------------------------------------------------------------------
+
+*AstroBin Depth Translator is an independent project and is not affiliated with or
+endorsed by AstroBin. It estimates the depth of image data for comparison and
+planning; it is not a measurement instrument and not a judgement of image quality.*
+
+                                                                                                                                      

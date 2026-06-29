@@ -1,0 +1,5 @@
+# Never commit your secret or the collected data
+config.json
+data/
+node_modules/
+.wrangler/

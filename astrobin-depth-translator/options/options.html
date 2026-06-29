@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AstroBin Depth Translator - settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>AstroBin Depth Translator</h1>
+    <p class="sub">Set up your rigs once. The panel on each image page uses your active rig to tell you how long you'd need to match it.</p>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Your rigs</h2>
+        <button id="addRig" class="btn">+ Add rig</button>
+      </div>
+      <div id="rigList" class="riglist"></div>
+    </section>
+
+    <section class="card" id="editorCard" hidden>
+      <div class="card-head"><h2 id="editorTitle">Edit rig</h2></div>
+      <div class="grid">
+        <label>Name <input id="f_label" placeholder="e.g. 150PDS + 178"></label>
+
+        <fieldset>
+          <legend>Telescope</legend>
+          <label>Pick a model
+            <input id="f_scope" list="dl_scopes" placeholder="type to search…" autocomplete="off">
+            <datalist id="dl_scopes"></datalist>
+          </label>
+          <div class="row3">
+            <label>Aperture (mm)<input id="f_aperture" type="number" step="1" placeholder="needed"></label>
+            <label>Focal length (mm)<input id="f_focal" type="number" step="1" placeholder="optional"></label>
+            <label>f-ratio<input id="f_fratio" type="number" step="0.1" placeholder="optional"></label>
+          </div>
+          <p class="hint">Only aperture is required. Enter any two of aperture / focal / f-ratio and the third fills itself.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Camera</legend>
+          <label>Pick a model
+            <input id="f_camera" list="dl_cameras" placeholder="type to search…" autocomplete="off">
+            <datalist id="dl_cameras"></datalist>
+          </label>
+          <div class="row3">
+            <label>Type
+              <select id="f_camtype"><option value="color">colour</option><option value="mono">mono</option></select>
+            </label>
+            <label>Pixel size (µm)<input id="f_pixel" type="number" step="0.01" placeholder="optional"></label>
+            <label>Lum QE (0–1)<input id="f_qelum" type="number" step="0.01" placeholder="optional"></label>
+          </div>
+          <p class="hint">Pick a known model to auto-fill QE. Raw entry uses flagged defaults for unknown QE.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Filters</legend>
+          <label>Broadband / luminance
+            <input id="f_bb" list="dl_filters" placeholder="No filter / OSC broadband" autocomplete="off">
+          </label>
+          <label>Narrowband
+            <input id="f_nb" list="dl_filters" placeholder="e.g. Optolong L-eXtreme, or Generic 7nm" autocomplete="off">
+            <datalist id="dl_filters"></datalist>
+          </label>
+          <p class="hint">For quick use, type "Generic 3nm narrowband" or "Generic 7nm narrowband". Dual-band filters cover Ha+OIII in one shot.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Sky</legend>
+          <div class="row3">
+            <label>Bortle
+              <select id="f_bortle">
+                <option value="">-</option>
+                <option>1</option><option>2</option><option>3</option><option>4</option>
+                <option value="4.5">4.5</option><option>5</option><option>6</option>
+                <option>7</option><option>8</option><option>9</option>
+              </select>
+            </label>
+            <label>SQM (mag/arcsec², optional)<input id="f_sqm" type="number" step="0.01" placeholder="overrides Bortle"></label>
+            <label class="check"><input id="f_moonless" type="checkbox" checked> I shoot moonless</label>
+          </div>
+        </fieldset>
+      </div>
+      <div class="actions">
+        <button id="saveRig" class="btn primary">Save rig</button>
+        <button id="cancelRig" class="btn">Cancel</button>
+        <button id="deleteRig" class="btn danger" hidden>Delete</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Equipment table</h2></div>
+      <p class="hint">The built-in table seeds specs the AstroBin page doesn't show (QE, filter bandwidth/transmission). Add your own gear here, or edit the table in Excel and import the CSV.</p>
+      <div class="grid">
+        <fieldset>
+          <legend>Add gear</legend>
+          <div class="row3">
+            <label>Category
+              <select id="g_cat"><option value="CAMERAS">camera</option><option value="SCOPES">scope</option><option value="FILTERS">filter</option></select>
+            </label>
+            <label>Model name<input id="g_model" placeholder="exact AstroBin name helps matching"></label>
+          </div>
+          <div id="g_fields" class="row3"></div>
+          <button id="g_add" class="btn">Add to table</button>
+        </fieldset>
+        <fieldset>
+          <legend>CSV (Excel)</legend>
+          <button id="csv_export" class="btn">Export table → CSV</button>
+          <label class="filein">Import CSV<input id="csv_import" type="file" accept=".csv"></label>
+          <p class="hint">CSV columns: category, model, then the spec columns (type, pixel_um, qe_lum, qe_ha, qe_oiii, qe_sii / aperture_mm, focal_mm, f_ratio / kind, bands, bandwidth_nm, transmission).</p>
+        </fieldset>
+      </div>
+    </section>
+
+    <p id="status" class="status"></p>
+  </div>
+
+  <script src="../src/equipment.js"></script>
+  <script src="../src/engine.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

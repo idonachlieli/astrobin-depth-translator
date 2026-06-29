@@ -1,0 +1,4 @@
+{
+  "endpoint": "https://astrobin-analytics.YOUR-SUBDOMAIN.workers.dev",
+  "dump_key": "the-secret-you-set-with-wrangler-secret-put-DUMP_KEY"
+}

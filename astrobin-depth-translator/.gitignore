@@ -1,0 +1,15 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+.vscode/
+.idea/
+
+# Logs / temp
+*.log
+node_modules/
+
+# Excel lock files (keep equipment.xlsx itself)
+~$*.xlsx

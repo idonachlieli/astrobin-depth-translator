@@ -1,0 +1,12 @@
+# Secrets & collected data — never commit these
+astrobin-analytics/config.json
+astrobin-analytics/data/
+
+# Tooling / build junk
+node_modules/
+.wrangler/
+__pycache__/
+*.pyc
+
+# Build output (rebuild from source instead)
+astrobin-depth-translator-v*.zip

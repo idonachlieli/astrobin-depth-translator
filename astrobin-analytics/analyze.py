@@ -20,6 +20,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 EVENTS_FILE = os.path.join(HERE, "data", "events.ndjson")
 
 
+def norm(s):
+    # Collapse non-breaking spaces / stray whitespace so the same gear groups together
+    # (AstroBin's page markup uses   between words; saved rigs use plain spaces).
+    return " ".join(str(s).replace(" ", " ").split())
+
+
 def load_events():
     if not os.path.exists(EVENTS_FILE):
         sys.exit(f"No data yet at {EVENTS_FILE}. Run: python pull_data.py")
@@ -83,14 +89,14 @@ def build_summary(events):
         elif evt == "rig_saved":
             saved_rig.add(iid)
             if d.get("scope"):
-                scopes[d["scope"]] += 1
+                scopes[norm(d["scope"])] += 1
             if d.get("camera"):
-                cameras[d["camera"]] += 1
+                cameras[norm(d["camera"])] += 1
             if d.get("bb"):
-                bb_filters[d["bb"]] += 1
+                bb_filters[norm(d["bb"])] += 1
             for nb in d.get("nb") or []:
                 if nb:
-                    nb_filters[nb] += 1
+                    nb_filters[norm(nb)] += 1
             if d.get("sqm"):
                 sky_sqm += 1
             elif d.get("bortle") is not None:
@@ -98,9 +104,9 @@ def build_summary(events):
         elif evt == "image_analyzed":
             analyzed.add(iid)
             if d.get("telescope"):
-                scopes[d["telescope"]] += 1
+                scopes[norm(d["telescope"])] += 1
             if d.get("camera"):
-                cameras[d["camera"]] += 1
+                cameras[norm(d["camera"])] += 1
             if d.get("url"):
                 urls[d["url"]] += 1
             if d.get("sqm") is not None:
@@ -110,9 +116,9 @@ def build_summary(events):
         elif evt == "custom_gear":
             if d.get("model"):
                 if d.get("cat") == "camera":
-                    cameras[d["model"]] += 1
+                    cameras[norm(d["model"])] += 1
                 elif d.get("cat") == "telescope":
-                    scopes[d["model"]] += 1
+                    scopes[norm(d["model"])] += 1
         elif evt == "error":
             errors[(d.get("msg") or "?")[:120]] += 1
 

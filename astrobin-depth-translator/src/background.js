@@ -16,7 +16,7 @@
  */
 // After deploying the Cloudflare Worker (see ../astrobin-analytics/SETUP.md),
 // paste your Worker URL + "/collect" here. Leave "" to keep collection OFF.
-const ANALYTICS_ENDPOINT = ""; // e.g. "https://astrobin-analytics.YOUR-SUBDOMAIN.workers.dev/collect"
+const ANALYTICS_ENDPOINT = "https://astrobin-analytics.idonachlieli.workers.dev/collect";
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || msg.type !== "adt_track" || !ANALYTICS_ENDPOINT) return;

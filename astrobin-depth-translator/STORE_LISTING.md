@@ -38,6 +38,7 @@ Raw hours mean nothing across different apertures, f‑ratios, and skies. Instea
 - Handles colour and mono, broadband (LRGB) and narrowband (Hα/OIII/SII), dual‑band filters and SHO filter sets, moonlight, and Bortle/SQM skies.
 - Hover any number to see the full calculation with your own values substituted in - no black boxes.
 - A confidence indicator shows when a value is measured vs. estimated.
+- **Match it at 100%:** an interactive per‑pixel planner shows which scope and camera would reproduce this image's detail at 1:1 on your sensor - adjust focal length, aperture, or f‑ratio and it tells you whether you'd match the image's resolution and the integration time to get there. So you can plan for detail, not just depth.
 
 **What it is not:** it estimates *depth* (how much signal the data holds), not artistic quality, framing, or processing. The numbers are physically grounded estimates, only as good as the metadata each image's author entered.
 
@@ -56,7 +57,8 @@ A single‑purpose statement Google requires - paste verbatim:
 
 ### Permission justifications (required, one per permission)
 - **storage** - Saves the user's own gear/rig settings and caches equipment specifications locally so they aren't re‑fetched. Nothing is sent off‑device.
-- **Host permission `https://app.astrobin.com/*` and `https://www.astrobin.com/*`** - Needed to read the acquisition details on the AstroBin image page the user is viewing, and to query AstroBin's public equipment API for telescope/camera/filter specifications. No other sites are accessed.
+- **Host permission `https://app.astrobin.com/*` and `https://www.astrobin.com/*`** - Needed to read the acquisition details on the AstroBin image page the user is viewing, and to query AstroBin's public equipment API for telescope/camera/filter specifications.
+- **Host permission `https://astrobin-analytics.idonachlieli.workers.dev/*`** - The endpoint that receives the optional, opt-in usage data. Only contacted when the user has turned on "share usage data"; otherwise never. No other sites are accessed.
 
 > The extension requests **no** broad host permissions, no `tabs`, no `activeTab`, no scripting on other sites, and no remote code. All code is contained in the package.
 
@@ -89,4 +91,11 @@ A publicly accessible URL is **mandatory** because the extension uses `storage` 
 ---
 
 ## Manifest facts (for the reviewer's context)
-- Manifest V3 ✔ · Version 0.1.0 · Permissions: `storage` + the two AstroBin host permissions only.
+- Manifest V3 ✔ · Version 0.1.0 · Permissions: `storage` + the two AstroBin host permissions + the analytics worker host (`astrobin-analytics.idonachlieli.workers.dev`, used only for opt-in usage data).
+
+## CURRENT SHIPPING DECISION (v0.1, analytics ON)
+This build has a live analytics endpoint, so on the Data-usage form:
+- "Does this item collect user data?" → **Yes**.
+- Declare: **Website content** (the image's public acquisition metadata) and **Web history / Website activity** (the AstroBin image-page URL analyzed) and **User activity** (errors). It is opt-in and used only to improve the extension.
+- Certify all three statements (do not sell; only for the single purpose; not for creditworthiness).
+- Privacy policy URL is required (PRIVACY.md, hosted on the public GitHub repo).

@@ -32,6 +32,8 @@ Hover any number in the panel to see this formula with the real values substitut
 
 Image data (integration, equipment, sky, pixel scale) is read from the page; telescope aperture, filter bandwidth, and sensor specs are pulled from **AstroBin's own public equipment API** and cached locally. A small built-in table fills the gaps AstroBin doesn't publish (sensor QE, filter transmission). A confidence badge flags which inputs are known versus estimated.
 
+Depth is about *signal*. For *detail*, there's also a **"Match this image at 100%"** per-pixel planner: adjust a hypothetical scope's focal length, aperture, or f-ratio and it tells you whether you'd reproduce the image's resolution at 1:1 on your sensor — and the integration time to get there.
+
 ## Privacy
 
 Everything runs in your browser, and **nothing is sent anywhere by default**. There's an optional, off-by-default toggle to share anonymous usage data (a random install id, which gear/settings were used, and errors — no name, no account). See [`astrobin-depth-translator/PRIVACY.md`](astrobin-depth-translator/PRIVACY.md).

@@ -6,7 +6,8 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://app.astrobin.com/*",
-    "https://www.astrobin.com/*"
+    "https://www.astrobin.com/*",
+    "https://astrobin-analytics.idonachlieli.workers.dev/*"
   ],
   "background": {
     "service_worker": "src/background.js"

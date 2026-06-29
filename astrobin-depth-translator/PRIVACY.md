@@ -1,6 +1,6 @@
 # Privacy Policy - AstroBin Depth Translator
 
-_Last updated: 2026-06-27_
+_Last updated: 2026-06-29_
 
 AstroBin Depth Translator is a browser extension that runs entirely in your
 browser. It is built to respect your privacy.
@@ -55,6 +55,9 @@ unticking the box.
 - **Storage** - to save your gear settings and cache equipment specs locally.
 - **Access to `app.astrobin.com` / `www.astrobin.com`** - to read the image page
   you're viewing and to query AstroBin's public equipment API.
+- **Access to `astrobin-analytics.idonachlieli.workers.dev`** - used **only** to
+  send the optional usage data described above, and **only if you opt in**. If you
+  never tick the box, nothing is ever sent there.
 
 ## Changes
 
